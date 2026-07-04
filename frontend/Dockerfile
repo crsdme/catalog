@@ -1,3 +1,5 @@
+FROM backend AS backend_order
+
 FROM node:20-alpine AS builder
 WORKDIR /app
 

@@ -21,6 +21,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: catalog-backend
     container_name: catalog-backend
     restart: always
     env_file:
@@ -44,6 +45,9 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_BACKEND_URL: ''
+      additional_contexts:
+        backend: service:backend
+    image: catalog-frontend
     container_name: catalog-frontend
     restart: always
     expose:
