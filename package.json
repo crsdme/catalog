@@ -3,7 +3,7 @@
     "dev": "concurrently -n shared,backend,frontend -c auto \"npm -w @catalog/shared run dev\" \"npm -w backend run dev\" \"npm -w frontend run dev\"",
     "build": "npm run build -w @catalog/shared && npm run build -w backend && npm run build -w frontend",
     "check": "npm run check -w @catalog/shared && npm run check -w frontend && npm run check -w backend",
-    "docker:up": "docker compose build --parallel 1 && docker compose up -d",
+    "docker:up": "docker compose build backend && docker compose build frontend && docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
   },
