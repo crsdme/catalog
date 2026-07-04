@@ -61,6 +61,44 @@ export async function listPhotos(catalogId: string, allowedCategoryIds?: Set<str
     .map(({ photo, category }) => mapCatalogPhotoToDTO(photo, category?.path ?? ''))
 }
 
+export async function listPhotosByIds(catalogId: string, photoIds: string[]) {
+  if (!photoIds.length)
+    return []
+
+  const rows = await db
+    .select({ photo: catalogPhotos, category: catalogCategories })
+    .from(catalogPhotos)
+    .leftJoin(catalogCategories, eq(catalogPhotos.categoryId, catalogCategories.id))
+    .where(and(
+      eq(catalogPhotos.catalogId, catalogId),
+      inArray(catalogPhotos.id, photoIds),
+    ))
+
+  const orderMap = new Map(photoIds.map((id, index) => [id, index]))
+
+  return rows
+    .sort((a, b) => (orderMap.get(a.photo.id) ?? 0) - (orderMap.get(b.photo.id) ?? 0))
+    .map(({ photo, category }) => mapCatalogPhotoToDTO(photo, category?.path ?? ''))
+}
+
+export async function countPhotosByCategory(catalogId: string) {
+  const rows = await db
+    .select({
+      categoryId: catalogPhotos.categoryId,
+      count: count(),
+    })
+    .from(catalogPhotos)
+    .where(and(eq(catalogPhotos.catalogId, catalogId), eq(catalogPhotos.removed, false)))
+    .groupBy(catalogPhotos.categoryId)
+
+  const result: Record<string, number> = {}
+  for (const row of rows) {
+    if (row.categoryId)
+      result[row.categoryId] = Number(row.count)
+  }
+  return result
+}
+
 export async function upsertPhotosFromDrive(
   catalogId: string,
   files: Array<{ fileId: string, name: string }>,
@@ -138,15 +176,19 @@ export async function upsertSelection(payload: {
   clientName: string
   linkToken?: string | null
   markers: UpsertSelectionRequest['markers']
+  allowRemovedPhoto?: boolean
 }) {
+  const photoConditions = [
+    eq(catalogPhotos.id, payload.photoId),
+    eq(catalogPhotos.catalogId, payload.catalogId),
+  ]
+  if (!payload.allowRemovedPhoto)
+    photoConditions.push(eq(catalogPhotos.removed, false))
+
   const [photo] = await db
     .select()
     .from(catalogPhotos)
-    .where(and(
-      eq(catalogPhotos.id, payload.photoId),
-      eq(catalogPhotos.catalogId, payload.catalogId),
-      eq(catalogPhotos.removed, false),
-    ))
+    .where(and(...photoConditions))
     .limit(1)
 
   if (!photo)
@@ -202,6 +244,7 @@ export async function createLink(payload: {
   clientName: string
   label?: string
   categoryIds?: string[]
+  snapshotPhotoIds?: string[]
   managerTelegramId?: string
   expiresAt?: Date
 }, frontendUrl: string) {
@@ -217,6 +260,7 @@ export async function createLink(payload: {
     clientName: payload.clientName,
     label: payload.label ?? '',
     categoryIds: payload.categoryIds ?? [],
+    snapshotPhotoIds: payload.snapshotPhotoIds ?? [],
     managerTelegramId: payload.managerTelegramId ?? null,
     expiresAt: payload.expiresAt ?? null,
   }).returning()
@@ -230,6 +274,7 @@ export async function updateLink(payload: {
   clientName?: string
   label?: string
   categoryIds?: string[]
+  snapshotPhotoIds?: string[]
 }) {
   const [existing] = await db
     .select()
@@ -244,6 +289,7 @@ export async function updateLink(payload: {
     clientName: payload.clientName ?? existing.clientName,
     label: payload.label ?? existing.label,
     categoryIds: payload.categoryIds ?? existing.categoryIds,
+    snapshotPhotoIds: payload.snapshotPhotoIds ?? existing.snapshotPhotoIds,
     updatedAt: sql`now()`,
   }).where(eq(catalogLinks.id, payload.id)).returning()
 
@@ -283,7 +329,14 @@ export async function listLinksByManager(managerTelegramId: string) {
     .orderBy(desc(catalogLinks.createdAt))
 }
 
-export async function listSelectionsByLinkToken(linkToken: string) {
+export async function listSelectionsByLinkToken(linkToken: string, includeRemovedPhotos = false) {
+  const conditions = [
+    eq(photoSelections.linkToken, linkToken),
+    eq(photoSelections.removed, false),
+  ]
+  if (!includeRemovedPhotos)
+    conditions.push(eq(catalogPhotos.removed, false))
+
   const rows = await db
     .select({
       selection: photoSelections,
@@ -293,11 +346,7 @@ export async function listSelectionsByLinkToken(linkToken: string) {
     .from(photoSelections)
     .innerJoin(catalogPhotos, eq(photoSelections.photoId, catalogPhotos.id))
     .leftJoin(catalogCategories, eq(catalogPhotos.categoryId, catalogCategories.id))
-    .where(and(
-      eq(photoSelections.linkToken, linkToken),
-      eq(photoSelections.removed, false),
-      eq(catalogPhotos.removed, false),
-    ))
+    .where(and(...conditions))
     .orderBy(desc(photoSelections.updatedAt))
 
   return rows.map(({ selection, photo, category }) => ({

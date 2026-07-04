@@ -90,6 +90,7 @@ export const catalogLinks = pgTable('catalog_links', {
   clientName: text('client_name').notNull(),
   label: text('label').notNull().default(''),
   categoryIds: jsonb('category_ids').$type<string[]>().notNull().default([]),
+  snapshotPhotoIds: jsonb('snapshot_photo_ids').$type<string[]>().notNull().default([]),
   managerTelegramId: text('manager_telegram_id'),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   removed: boolean('removed').notNull().default(false),

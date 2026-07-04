@@ -54,30 +54,39 @@ async function buildPublicCatalogData(
   options?: {
     linkToken?: string | null
     categoryIds?: string[]
+    snapshotPhotoIds?: string[]
     label?: string
   },
 ) {
-  await syncCatalogTree(catalog)
+  const isScopedLink = Boolean(options?.linkToken)
+  const hasSnapshot = Boolean(options?.snapshotPhotoIds?.length)
+
+  if (!hasSnapshot)
+    await syncCatalogTree(catalog)
 
   const categories = await CatalogsRepo.listCategories(catalog.id)
-  const isScopedLink = Boolean(options?.linkToken)
 
-  const allowedCategoryIds = isScopedLink
+  const allowedCategoryIds = isScopedLink && !hasSnapshot
     ? CatalogSyncService.expandCategoryScope(categories, options?.categoryIds ?? [])
-    : options?.categoryIds?.length
+    : options?.categoryIds?.length && !hasSnapshot
       ? CatalogSyncService.expandCategoryScope(categories, options.categoryIds)
       : undefined
 
-  const [photos, selections] = await Promise.all([
-    CatalogsRepo.listPhotos(catalog.id, allowedCategoryIds),
-    CatalogsRepo.listSelections(catalog.id, clientName),
-  ])
+  const photos = hasSnapshot
+    ? await CatalogsRepo.listPhotosByIds(catalog.id, options!.snapshotPhotoIds!)
+    : await CatalogsRepo.listPhotos(catalog.id, allowedCategoryIds)
+
+  const selections = await CatalogsRepo.listSelections(catalog.id, clientName)
 
   const visiblePhotoIds = new Set(photos.map(photo => photo.id))
   const filteredSelections = selections.filter(selection => visiblePhotoIds.has(selection.photoId))
-  const visibleCategories = allowedCategoryIds
-    ? categories.filter(category => allowedCategoryIds.has(category.id))
-    : categories
+
+  const visibleCategoryIds = new Set(photos.map(photo => photo.categoryId).filter(Boolean) as string[])
+  const visibleCategories = hasSnapshot
+    ? categories.filter(category => visibleCategoryIds.has(category.id))
+    : allowedCategoryIds
+      ? categories.filter(category => allowedCategoryIds!.has(category.id))
+      : categories
 
   return {
     catalog: mapCatalogToDTO(catalog),
@@ -130,6 +139,7 @@ export async function getPublicLink(token: string): Promise<PublicLinkResponse> 
     {
       linkToken: linkRow.link.token,
       categoryIds: linkRow.link.categoryIds,
+      snapshotPhotoIds: linkRow.link.snapshotPhotoIds,
       label: linkRow.link.label,
     },
   )
@@ -157,6 +167,25 @@ export async function upsertSelection(payload: UpsertSelectionRequest): Promise<
     catalogId = linkRow.catalog.id
     clientName = linkRow.link.clientName
     linkToken = linkRow.link.token
+
+    const snapshotIds = linkRow.link.snapshotPhotoIds ?? []
+    const isSnapshotPhoto = snapshotIds.includes(payload.photoId)
+
+    const selection = await CatalogsRepo.upsertSelection({
+      catalogId,
+      photoId: payload.photoId,
+      clientName,
+      linkToken,
+      markers: payload.markers,
+      allowRemovedPhoto: isSnapshotPhoto,
+    })
+
+    return {
+      status: 'success',
+      code: 'SELECTION_SAVED',
+      message: 'Selection saved',
+      data: selection,
+    }
   }
   else if (payload.slug && payload.clientName) {
     const catalog = await CatalogsRepo.findBySlug(payload.slug)
@@ -189,12 +218,24 @@ export async function createCatalogLink(payload: CreateCatalogLinkRequest): Prom
   if (!env.frontendUrl)
     throw new HttpError(500, 'Frontend URL is not configured', 'FRONTEND_URL_NOT_CONFIGURED')
 
+  const catalog = await CatalogsRepo.findById(payload.catalogId)
+  if (!catalog)
+    throw new HttpError(404, 'Catalog not found', 'CATALOG_NOT_FOUND')
+
+  await syncCatalogTree(catalog, true)
+
+  const categories = await CatalogsRepo.listCategories(payload.catalogId)
+  const allowedCategoryIds = CatalogSyncService.expandCategoryScope(categories, payload.categoryIds ?? [])
+  const photos = await CatalogsRepo.listPhotos(payload.catalogId, allowedCategoryIds)
+  const snapshotPhotoIds = photos.map(photo => photo.id)
+
   const link = await CatalogsRepo.createLink(
     {
       catalogId: payload.catalogId,
       clientName: payload.clientName,
       label: payload.label,
       categoryIds: payload.categoryIds,
+      snapshotPhotoIds,
       managerTelegramId: payload.managerTelegramId,
       expiresAt: payload.expiresAt,
     },
@@ -210,7 +251,28 @@ export async function createCatalogLink(payload: CreateCatalogLinkRequest): Prom
 }
 
 export async function updateCatalogLink(payload: UpdateCatalogLinkRequest): Promise<UpdateCatalogLinkResponse> {
-  const row = await CatalogsRepo.updateLink(payload)
+  const existing = await CatalogsRepo.findLinkById(payload.id)
+  if (!existing)
+    throw new HttpError(404, 'Link not found', 'CATALOG_LINK_NOT_FOUND')
+
+  let snapshotPhotoIds: string[] | undefined
+
+  if (payload.categoryIds) {
+    const catalog = await CatalogsRepo.findById(existing.catalogId)
+    if (!catalog)
+      throw new HttpError(404, 'Catalog not found', 'CATALOG_NOT_FOUND')
+
+    await syncCatalogTree(catalog, true)
+    const categories = await CatalogsRepo.listCategories(existing.catalogId)
+    const allowedCategoryIds = CatalogSyncService.expandCategoryScope(categories, payload.categoryIds)
+    const photos = await CatalogsRepo.listPhotos(existing.catalogId, allowedCategoryIds)
+    snapshotPhotoIds = photos.map(photo => photo.id)
+  }
+
+  const row = await CatalogsRepo.updateLink({
+    ...payload,
+    snapshotPhotoIds,
+  })
   if (!env.frontendUrl)
     throw new HttpError(500, 'Frontend URL is not configured', 'FRONTEND_URL_NOT_CONFIGURED')
 
@@ -263,7 +325,10 @@ export async function getLinkSelections(token: string) {
   if (!linkRow)
     throw new HttpError(404, 'Link not found', 'CATALOG_LINK_NOT_FOUND')
 
-  const selections = await CatalogsRepo.listSelectionsByLinkToken(token)
+  const selections = await CatalogsRepo.listSelectionsByLinkToken(
+    token,
+    Boolean(linkRow.link.snapshotPhotoIds?.length),
+  )
   return {
     link: linkRow.link,
     selections,
@@ -282,6 +347,10 @@ export async function listCategoriesForCatalog(catalogId: string, forceSync = fa
 
 export async function getCategoriesFromDb(catalogId: string) {
   return CatalogsRepo.listCategories(catalogId)
+}
+
+export async function getPhotoCountsByCategory(catalogId: string) {
+  return CatalogsRepo.countPhotosByCategory(catalogId)
 }
 
 export async function forceSyncCatalog(catalogId: string) {

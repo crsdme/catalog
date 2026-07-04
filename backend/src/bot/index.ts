@@ -1,6 +1,7 @@
 import { Telegraf } from 'telegraf'
 import { env } from '@/config/env'
 import { categoryPickerKeyboard, createdLinkKeyboard, linkActionsKeyboard, mainMenuKeyboard } from '@/bot/keyboards'
+import { getCategoryGroups } from '@/bot/category-groups'
 import { getSession, resetSession, toggleCategory, type BotSession } from '@/bot/session'
 import * as CatalogService from '@/services/catalog.service'
 import logger from '@/utils/logger'
@@ -53,8 +54,28 @@ async function preloadCategories(session: BotSession) {
 
   const catalog = await CatalogService.getDefaultCatalog()
   session.catalogId = catalog.id
-  session.categories = await CatalogService.getCategoriesFromDb(catalog.id)
+  const [categories, photoCounts] = await Promise.all([
+    CatalogService.getCategoriesFromDb(catalog.id),
+    CatalogService.getPhotoCountsByCategory(catalog.id),
+  ])
+  session.categories = categories
+  session.photoCounts = photoCounts
   return session.categories
+}
+
+function renderCategoryPicker(session: BotSession) {
+  const categories = session.categories ?? []
+  const groups = getCategoryGroups(categories)
+  if (session.categoryGroupIndex >= groups.length)
+    session.categoryGroupIndex = 0
+
+  return categoryPickerKeyboard(
+    categories,
+    session.selectedCategoryIds,
+    session.categoryGroupIndex,
+    session.categoryPage,
+    session.photoCounts,
+  )
 }
 
 async function ensureCategories(session: BotSession) {
@@ -101,6 +122,8 @@ export function startTelegramBot() {
     session.label = ''
     session.selectedCategoryIds = []
     session.categoryPage = 0
+    session.categoryGroupIndex = 0
+    session.categoryGroupIndex = 0
     void preloadCategories(session)
     await ctx.reply('Для кого ссылка? (имя клиента или пометка)\nПример: Anna / Свадьба 12.04')
   })
@@ -129,6 +152,7 @@ export function startTelegramBot() {
     const session = getSession(String(ctx.from!.id))
     session.catalogId = catalog.id
     session.categories = categories
+    session.photoCounts = await CatalogService.getPhotoCountsByCategory(catalog.id)
     await ctx.reply(formatSyncResult(categories.length, syncResult))
   })
 
@@ -144,6 +168,7 @@ export function startTelegramBot() {
       session.label = text
       session.step = 'selecting_categories'
       session.categoryPage = 0
+      session.categoryGroupIndex = 0
 
       const categories = await ensureCategories(session)
       if (!categories.length) {
@@ -156,7 +181,7 @@ export function startTelegramBot() {
 
       await ctx.reply(
         `Клиент: ${text}\n\nВыберите категории (можно несколько):`,
-        categoryPickerKeyboard(categories, session.selectedCategoryIds, session.categoryPage),
+        renderCategoryPicker(session),
       )
     }
   })
@@ -165,20 +190,29 @@ export function startTelegramBot() {
     await ctx.answerCbQuery()
     const session = getSession(String(ctx.from!.id))
     session.categoryPage = Number(ctx.match[1])
-    const categories = await ensureCategories(session)
-    await ctx.editMessageReplyMarkup(
-      categoryPickerKeyboard(categories, session.selectedCategoryIds, session.categoryPage).reply_markup,
-    )
+    await ensureCategories(session)
+    await ctx.editMessageReplyMarkup(renderCategoryPicker(session).reply_markup)
+  })
+
+  bot.action(/^group:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery()
+    const session = getSession(String(ctx.from!.id))
+    session.categoryGroupIndex = Number(ctx.match[1])
+    session.categoryPage = 0
+    await ensureCategories(session)
+    await ctx.editMessageReplyMarkup(renderCategoryPicker(session).reply_markup)
+  })
+
+  bot.action('group:noop', async (ctx) => {
+    await ctx.answerCbQuery()
   })
 
   bot.action(/^cat:(.+)$/, async (ctx) => {
     await ctx.answerCbQuery()
     const session = getSession(String(ctx.from!.id))
     toggleCategory(session, ctx.match[1])
-    const categories = await ensureCategories(session)
-    await ctx.editMessageReplyMarkup(
-      categoryPickerKeyboard(categories, session.selectedCategoryIds, session.categoryPage).reply_markup,
-    )
+    await ensureCategories(session)
+    await ctx.editMessageReplyMarkup(renderCategoryPicker(session).reply_markup)
   })
 
   bot.action('cats:cancel', async (ctx) => {
@@ -272,12 +306,13 @@ export function startTelegramBot() {
     session.editingLinkId = linkId
     session.selectedCategoryIds = [...link.categoryIds]
     session.categoryPage = 0
+    session.categoryGroupIndex = 0
 
-    const categories = await ensureCategories(session)
+    await ensureCategories(session)
 
     await ctx.reply(
       `Редактирование категорий для «${link.label || link.clientName}»`,
-      categoryPickerKeyboard(categories, session.selectedCategoryIds, session.categoryPage),
+      renderCategoryPicker(session),
     )
   })
 

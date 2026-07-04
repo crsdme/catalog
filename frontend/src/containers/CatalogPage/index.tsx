@@ -23,13 +23,17 @@ export function CatalogPage({ mode }: CatalogPageProps) {
   const isError = mode === 'slug' ? slugQuery.isError : tokenQuery.isError
   const error = mode === 'slug' ? slugQuery.error : tokenQuery.error
 
+  const photos = catalogData?.photos ?? []
+
   const saveMutation = useSaveSelectionMutation()
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  const [lightboxPhoto, setLightboxPhoto] = useState<CatalogPhotoDTO | null>(null)
+  const [lightboxPhotoIndex, setLightboxPhotoIndex] = useState(0)
   const [localMarkers, setLocalMarkers] = useState<MarkerDTO[]>([])
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const saveTimerRef = useRef<number | null>(null)
   const closeTimerRef = useRef<number | null>(null)
+
+  const lightboxPhoto = photos[lightboxPhotoIndex] ?? null
 
   useEffect(() => {
     document.documentElement.classList.add('dark')
@@ -47,10 +51,24 @@ export function CatalogPage({ mode }: CatalogPageProps) {
   }, [catalogData?.selections])
 
   const openPhoto = (photo: CatalogPhotoDTO) => {
+    const index = photos.findIndex(item => item.id === photo.id)
+    if (index < 0)
+      return
+
     if (closeTimerRef.current)
       window.clearTimeout(closeTimerRef.current)
-    setLightboxPhoto(photo)
+    setLightboxPhotoIndex(index)
     setLightboxOpen(true)
+    setLocalMarkers(selectionsMap.get(photo.id) ?? [])
+    setSaveStatus('idle')
+  }
+
+  const navigatePhoto = (index: number) => {
+    const photo = photos[index]
+    if (!photo)
+      return
+
+    setLightboxPhotoIndex(index)
     setLocalMarkers(selectionsMap.get(photo.id) ?? [])
     setSaveStatus('idle')
   }
@@ -59,25 +77,25 @@ export function CatalogPage({ mode }: CatalogPageProps) {
     setLightboxOpen(open)
     if (!open) {
       closeTimerRef.current = window.setTimeout(() => {
-        setLightboxPhoto(null)
+        setLightboxPhotoIndex(0)
         setLocalMarkers([])
         setSaveStatus('idle')
       }, 300)
     }
   }
 
-  const persistMarkers = useCallback((markers: MarkerDTO[]) => {
-    if (!lightboxPhoto || !catalogData)
+  const persistMarkers = useCallback((markers: MarkerDTO[], photoId: string) => {
+    if (!catalogData)
       return
 
     setSaveStatus('saving')
 
     const payload = mode === 'token' && token
-      ? { token, photoId: lightboxPhoto.id, markers }
+      ? { token, photoId, markers }
       : {
           slug: catalogData.catalog.slug,
           clientName: catalogData.clientName,
-          photoId: lightboxPhoto.id,
+          photoId,
           markers,
         }
 
@@ -85,16 +103,19 @@ export function CatalogPage({ mode }: CatalogPageProps) {
       onSuccess: () => setSaveStatus('saved'),
       onError: () => setSaveStatus('error'),
     })
-  }, [lightboxPhoto, catalogData, mode, token, saveMutation])
+  }, [catalogData, mode, token, saveMutation])
 
   const handleMarkersChange = (markers: MarkerDTO[]) => {
     setLocalMarkers(markers)
+
+    if (!lightboxPhoto)
+      return
 
     if (saveTimerRef.current)
       window.clearTimeout(saveTimerRef.current)
 
     saveTimerRef.current = window.setTimeout(() => {
-      persistMarkers(markers)
+      persistMarkers(markers, lightboxPhoto.id)
     }, 500)
   }
 
@@ -127,7 +148,7 @@ export function CatalogPage({ mode }: CatalogPageProps) {
     <div className="min-h-svh bg-background">
       <main className="mx-auto w-full px-2 py-4 md:px-4">
         <ProductGalleryGrid
-          photos={catalogData?.photos ?? []}
+          photos={photos}
           selections={(catalogData?.selections ?? []).map(selection => ({
             photoId: selection.photoId,
             markers: selection.markers,
@@ -140,10 +161,13 @@ export function CatalogPage({ mode }: CatalogPageProps) {
       {lightboxPhoto && (
         <ProductGalleryLightbox
           photo={lightboxPhoto}
+          photos={photos}
+          photoIndex={lightboxPhotoIndex}
           markers={localMarkers}
           open={lightboxOpen}
           onOpenChange={handleLightboxOpenChange}
           onMarkersChange={handleMarkersChange}
+          onNavigate={navigatePhoto}
           saveStatus={saveStatus}
         />
       )}

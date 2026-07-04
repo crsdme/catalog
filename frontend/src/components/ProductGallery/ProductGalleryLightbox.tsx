@@ -1,103 +1,99 @@
 import type { CatalogPhotoDTO, MarkerDTO } from '@catalog/shared'
-import { Check, Eraser, Loader2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Eraser, Hand, Loader2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getPhotoImageUrl } from '@/api/requests/catalog'
 import { PhotoMarkerLayer } from '@/components/PhotoMarkerLayer'
 import { Button, Dialog, DialogContent } from '@/components/ui'
 import { formatPhotoName } from '@/utils/helpers/formatPhotoName'
 import { cn } from '@/utils/lib/utils'
-import { isNearMarker, type ImageTransform } from '@/utils/hooks/useImageFit/useImageFit'
+import { isNearMarker } from '@/utils/hooks/useImageFit/useImageFit'
+import { usePinchZoom } from '@/utils/hooks/usePinchZoom/usePinchZoom'
 
 interface ProductGalleryLightboxProps {
   photo: CatalogPhotoDTO
+  photos: CatalogPhotoDTO[]
+  photoIndex: number
   markers: MarkerDTO[]
   open: boolean
   onOpenChange: (open: boolean) => void
   onMarkersChange: (markers: MarkerDTO[]) => void
+  onNavigate: (index: number) => void
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error'
 }
 
-const MIN_SCALE = 1
-const MAX_SCALE = 4
 const TOOLBAR_HEIGHT = 72
+const GUIDE_STORAGE_KEY = 'catalog-gallery-guide-seen'
 
 export function ProductGalleryLightbox({
   photo,
+  photos,
+  photoIndex,
   markers,
   open,
   onOpenChange,
   onMarkersChange,
+  onNavigate,
   saveStatus = 'idle',
 }: ProductGalleryLightboxProps) {
   const imageRef = useRef<HTMLImageElement>(null)
+  const lastTapRef = useRef(0)
   const [isImageLoaded, setIsImageLoaded] = useState(false)
-  const [transform, setTransform] = useState<ImageTransform>({ scale: 1, translateX: 0, translateY: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const dragStart = useRef({ x: 0, y: 0, translateX: 0, translateY: 0 })
-  const dragMovedRef = useRef(false)
+  const [showGuide, setShowGuide] = useState(false)
+
+  const hasPrev = photoIndex > 0
+  const hasNext = photoIndex < photos.length - 1
+
+  const goPrev = useCallback(() => {
+    if (hasPrev)
+      onNavigate(photoIndex - 1)
+  }, [hasPrev, onNavigate, photoIndex])
+
+  const goNext = useCallback(() => {
+    if (hasNext)
+      onNavigate(photoIndex + 1)
+  }, [hasNext, onNavigate, photoIndex])
+
+  const {
+    transform,
+    isDragging,
+    dragMovedRef,
+    resetTransform,
+    zoomIn,
+    zoomOut,
+    handleWheel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handleDoubleTap,
+    isZoomed,
+  } = usePinchZoom({
+    onSwipeLeft: goNext,
+    onSwipeRight: goPrev,
+  })
 
   useEffect(() => {
     if (!open)
       return
 
-    setTransform({ scale: 1, translateX: 0, translateY: 0 })
+    resetTransform()
     setIsImageLoaded(false)
-  }, [open, photo.id])
 
-  const clampTransform = useCallback((next: ImageTransform): ImageTransform => {
-    const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next.scale))
-    if (scale === 1)
-      return { scale: 1, translateX: 0, translateY: 0 }
-    return { ...next, scale }
-  }, [])
-
-  const handleZoomIn = () => {
-    setTransform(prev => clampTransform({ ...prev, scale: prev.scale + 0.25 }))
-  }
-
-  const handleZoomOut = () => {
-    setTransform(prev => clampTransform({ ...prev, scale: prev.scale - 0.25 }))
-  }
-
-  const handleWheel = (event: React.WheelEvent) => {
-    event.preventDefault()
-    const delta = event.deltaY > 0 ? -0.12 : 0.12
-    setTransform(prev => clampTransform({ ...prev, scale: prev.scale + delta }))
-  }
-
-  const handlePointerDown = (event: React.PointerEvent) => {
-    if (transform.scale <= 1)
-      return
-    dragMovedRef.current = false
-    setIsDragging(true)
-    dragStart.current = {
-      x: event.clientX,
-      y: event.clientY,
-      translateX: transform.translateX,
-      translateY: transform.translateY,
+    try {
+      setShowGuide(!localStorage.getItem(GUIDE_STORAGE_KEY))
     }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
+    catch {
+      setShowGuide(true)
+    }
+  }, [open, photo.id, resetTransform])
 
-  const handlePointerMove = (event: React.PointerEvent) => {
-    if (!isDragging)
-      return
-    const dx = event.clientX - dragStart.current.x
-    const dy = event.clientY - dragStart.current.y
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4)
-      dragMovedRef.current = true
-    setTransform(prev => ({
-      ...prev,
-      translateX: dragStart.current.translateX + dx,
-      translateY: dragStart.current.translateY + dy,
-    }))
-  }
-
-  const handlePointerUp = (event: React.PointerEvent) => {
-    if (!isDragging)
-      return
-    setIsDragging(false)
-    event.currentTarget.releasePointerCapture(event.pointerId)
+  const dismissGuide = () => {
+    setShowGuide(false)
+    try {
+      localStorage.setItem(GUIDE_STORAGE_KEY, '1')
+    }
+    catch {
+      // ignore
+    }
   }
 
   const handleOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -123,6 +119,19 @@ export function ProductGalleryLightbox({
     onMarkersChange([...markers, point])
   }
 
+  const handleTap = (event: React.MouseEvent) => {
+    const now = Date.now()
+    if (now - lastTapRef.current < 300) {
+      handleDoubleTap(event)
+      lastTapRef.current = 0
+    }
+    else {
+      lastTapRef.current = now
+    }
+  }
+
+  const imageVariant = 'full' as const
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -146,8 +155,33 @@ export function ProductGalleryLightbox({
               type="button"
               variant="ghost"
               size="icon"
+              disabled={!hasPrev}
+              className="size-8 rounded-full text-white/90 hover:bg-white/10 hover:text-white disabled:opacity-30"
+              onClick={goPrev}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="min-w-[3rem] text-center text-xs text-white/60">
+              {photoIndex + 1}
+              /
+              {photos.length}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={!hasNext}
+              className="size-8 rounded-full text-white/90 hover:bg-white/10 hover:text-white disabled:opacity-30"
+              onClick={goNext}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               className="size-8 rounded-full text-white/90 hover:bg-white/10 hover:text-white"
-              onClick={handleZoomOut}
+              onClick={zoomOut}
             >
               <ZoomOut className="size-4" />
             </Button>
@@ -156,7 +190,7 @@ export function ProductGalleryLightbox({
               variant="ghost"
               size="icon"
               className="size-8 rounded-full text-white/90 hover:bg-white/10 hover:text-white"
-              onClick={handleZoomIn}
+              onClick={zoomIn}
             >
               <ZoomIn className="size-4" />
             </Button>
@@ -181,10 +215,35 @@ export function ProductGalleryLightbox({
           </div>
         </div>
 
+        {showGuide && (
+          <div className="absolute inset-0 z-40 flex items-end justify-center bg-black/60 p-4 pb-24 sm:items-center sm:pb-4">
+            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-900/95 p-5 shadow-2xl backdrop-blur-md">
+              <div className="mb-3 flex items-center gap-2 text-white">
+                <Hand className="size-5 text-white/70" />
+                <h3 className="text-base font-medium">Как выбрать товар</h3>
+              </div>
+              <ul className="space-y-2 text-sm text-white/75">
+                <li>• Нажмите на фото, чтобы поставить метку на понравившийся товар</li>
+                <li>• Нажмите на метку ещё раз, чтобы убрать её</li>
+                <li>• Свайп влево/вправо — переключить фото</li>
+                <li>• Два пальца или двойной тап — приблизить для деталей</li>
+                <li>• Выбор сохраняется автоматически</li>
+              </ul>
+              <Button
+                type="button"
+                className="mt-4 w-full"
+                onClick={dismissGuide}
+              >
+                Понятно
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div
           className={cn(
             'relative flex flex-1 items-center justify-center overflow-hidden px-4 pb-6 touch-none',
-            transform.scale > 1 ? 'cursor-grab' : 'cursor-crosshair',
+            isZoomed ? 'cursor-grab' : 'cursor-crosshair',
             isDragging && 'cursor-grabbing',
           )}
           style={{ paddingTop: TOOLBAR_HEIGHT }}
@@ -199,6 +258,7 @@ export function ProductGalleryLightbox({
             style={{
               transform: `translate(${transform.translateX}px, ${transform.translateY}px) scale(${transform.scale})`,
               transformOrigin: 'center center',
+              transition: isDragging ? 'none' : 'transform 0.05s ease-out',
             }}
           >
             {!isImageLoaded && (
@@ -215,7 +275,8 @@ export function ProductGalleryLightbox({
             >
               <img
                 ref={imageRef}
-                src={getPhotoImageUrl(photo.driveFileId, 'lightbox')}
+                key={`${photo.id}-${imageVariant}`}
+                src={getPhotoImageUrl(photo.driveFileId, imageVariant)}
                 alt={formatPhotoName(photo.name)}
                 draggable={false}
                 decoding="async"
@@ -226,7 +287,11 @@ export function ProductGalleryLightbox({
 
               <div
                 className="absolute inset-0 rounded-lg"
-                onClick={handleOverlayClick}
+                onClick={(event) => {
+                  handleTap(event)
+                  if (!isZoomed)
+                    handleOverlayClick(event)
+                }}
               >
                 <PhotoMarkerLayer
                   markers={markers}
@@ -242,6 +307,9 @@ export function ProductGalleryLightbox({
         {isImageLoaded && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-4 text-center">
             <p className="truncate text-sm text-white/90">{formatPhotoName(photo.name)}</p>
+            {photo.categoryPath && (
+              <p className="truncate text-xs text-white/50">{photo.categoryPath}</p>
+            )}
           </div>
         )}
       </DialogContent>

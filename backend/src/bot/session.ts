@@ -13,8 +13,10 @@ export interface BotSession {
   selectedCategoryIds: string[]
   editingLinkId?: string
   categoryPage: number
+  categoryGroupIndex: number
   catalogId?: string
   categories?: CatalogCategoryDTO[]
+  photoCounts?: Record<string, number>
 }
 
 const sessions = new Map<string, BotSession>()
@@ -30,6 +32,7 @@ export function getSession(telegramId: string): BotSession {
     label: '',
     selectedCategoryIds: [],
     categoryPage: 0,
+    categoryGroupIndex: 0,
   }
   sessions.set(telegramId, session)
   return session
@@ -42,8 +45,10 @@ export function resetSession(telegramId: string) {
     label: '',
     selectedCategoryIds: [],
     categoryPage: 0,
+    categoryGroupIndex: 0,
     catalogId: undefined,
     categories: undefined,
+    photoCounts: undefined,
   })
 }
 

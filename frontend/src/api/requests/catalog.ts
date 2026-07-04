@@ -6,11 +6,12 @@ import type {
 } from '@catalog/shared'
 import { api } from '@/api/instance'
 
-export type PhotoImageVariant = 'thumb' | 'lightbox'
+export type PhotoImageVariant = 'thumb' | 'lightbox' | 'full'
 
 const VARIANT_PARAMS: Record<PhotoImageVariant, { w: number, q: number }> = {
   thumb: { w: 520, q: 92 },
   lightbox: { w: 1600, q: 90 },
+  full: { w: 2560, q: 92 },
 }
 
 export async function getPublicCatalog(slug: string, client: string) {
