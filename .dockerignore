@@ -5,8 +5,7 @@ dist
 .git
 .gitignore
 **/.tsbuildinfo
-storage/cache
-backend/storage
+backend/storage/
 *.log
 .env
 .env.*

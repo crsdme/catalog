@@ -6,10 +6,8 @@ dist
 !.env.production.example
 **/secrets/
 raw-hair-*.json
-storage/cache/
+backend/storage/
 logs
-*.log
-storage
 .turbo
 .tsbuildinfo
 _remnants_ref
