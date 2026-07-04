@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "dev": "concurrently -n shared,backend,frontend -c auto \"npm -w @catalog/shared run dev\" \"npm -w backend run dev\" \"npm -w frontend run dev\"",
+    "check": "npm run check -w @catalog/shared && npm run check -w frontend && npm run check -w backend"
+  },
+  "workspaces": [
+    "frontend",
+    "backend",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "concurrently": "^9.2.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.1"
+  }
+}
