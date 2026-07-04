@@ -1,6 +1,11 @@
+# syntax=docker/dockerfile:1.4
+
 FROM backend AS backend_order
 
 FROM node:20-alpine AS builder
+RUN --mount=from=backend_order,target=/backend-ready,readonly \
+    test -d /backend-ready
+
 WORKDIR /app
 
 ARG VITE_BACKEND_URL=
