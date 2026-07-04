@@ -1,7 +1,11 @@
 {
   "scripts": {
     "dev": "concurrently -n shared,backend,frontend -c auto \"npm -w @catalog/shared run dev\" \"npm -w backend run dev\" \"npm -w frontend run dev\"",
-    "check": "npm run check -w @catalog/shared && npm run check -w frontend && npm run check -w backend"
+    "build": "npm run build -w @catalog/shared && npm run build -w backend && npm run build -w frontend",
+    "check": "npm run check -w @catalog/shared && npm run check -w frontend && npm run check -w backend",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
   },
   "workspaces": [
     "frontend",

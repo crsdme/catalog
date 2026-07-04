@@ -7,6 +7,7 @@ export const STORAGE_PATH = path.resolve('storage')
 export const STORAGE_PATHS = {
   uploads: path.join(STORAGE_PATH, 'uploads'),
   temp: path.join(STORAGE_PATH, 'temp'),
+  driveCache: path.join(STORAGE_PATH, 'cache', 'drive'),
 } as const
 
 export const DEFAULT_SETTINGS = [

@@ -32,6 +32,7 @@ export const NAV_MENU_ITEMS = [
     permissions: ['settings.page', 'auditLog.page'],
     items: [
       { id: 'settings', url: `${ADMIN_BASE_PATH}/settings`, permissions: ['settings.page'] },
+      { id: 'telegramUsers', url: `${ADMIN_BASE_PATH}/settings/telegram-users`, permissions: ['settings.page'] },
       { id: 'auditLogs', url: `${ADMIN_BASE_PATH}/settings/audit-logs`, permissions: ['auditLog.page'] },
     ],
   },
@@ -44,5 +45,6 @@ export const USER_ROLE_PERMISSIONS = [
   { group: 'settings', permissions: ['settings.page', 'settings.read', 'settings.create', 'settings.edit', 'settings.remove'] },
   { group: 'auditLogs', permissions: ['auditLog.page', 'auditLog.read'] },
   { group: 'storage', permissions: ['storage.upload'] },
+  { group: 'catalog', permissions: ['catalog.link.create', 'catalog.link.read', 'selection.view'] },
   { group: 'other', permissions: ['other.admin'] },
 ] as const

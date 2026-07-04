@@ -1,14 +1,70 @@
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: catalog-postgres
+    restart: always
     environment:
-      POSTGRES_USER: catalog
-      POSTGRES_PASSWORD: catalog
-      POSTGRES_DB: catalog
-    ports:
-      - '5432:5432'
+      POSTGRES_USER: ${POSTGRES_USER:-catalog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-catalog}
+      POSTGRES_DB: ${POSTGRES_DB:-catalog}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - catalog_network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-catalog} -d ${POSTGRES_DB:-catalog}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: catalog-backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-catalog}:${POSTGRES_PASSWORD:-catalog}@postgres:5432/${POSTGRES_DB:-catalog}
+      NODE_ENV: production
+      PORT: 5000
+    volumes:
+      - ./backend/storage:/app/backend/storage
+      - ./secrets:/app/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - catalog_network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_BACKEND_URL: ''
+    container_name: catalog-frontend
+    restart: always
+    expose:
+      - '80'
+    depends_on:
+      - backend
+    networks:
+      - catalog_network
+      - shared_network
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.catalog-frontend.rule=Host(`catalog.raw-hair-wholesale.com`)
+      - traefik.http.routers.catalog-frontend.entrypoints=websecure
+      - traefik.http.routers.catalog-frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.catalog-frontend.loadbalancer.server.port=80
+
+networks:
+  catalog_network:
+    driver: bridge
+  shared_network:
+    external: true
 
 volumes:
   postgres_data:

@@ -77,7 +77,7 @@ export async function createAdminRole() {
   const [row] = await db.insert(userRoles).values({
     names: { en: 'admin', ru: 'админ' },
     priority: 1,
-    permissions: ['other.admin', 'dashboard.page', 'user.page', 'user.create', 'user.edit', 'user.remove', 'userRole.page', 'userRole.create', 'userRole.edit', 'userRole.remove', 'settings.page', 'settings.create', 'settings.edit', 'settings.remove', 'auditLog.page', 'storage.upload'],
+    permissions: ['other.admin', 'dashboard.page', 'user.page', 'user.create', 'user.edit', 'user.remove', 'userRole.page', 'userRole.create', 'userRole.edit', 'userRole.remove', 'settings.page', 'settings.create', 'settings.edit', 'settings.remove', 'auditLog.page', 'storage.upload', 'catalog.link.create', 'catalog.link.read', 'selection.view'],
     active: true,
   }).returning()
   return row
